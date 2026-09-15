@@ -26,7 +26,7 @@ import requests
 
 from scripts.jira_utils import AttachmentFetchError, get_issue
 from scripts.strategy_source import format_issue_as_markdown
-from scripts.utils.error_utils import exit_error
+from scripts.utils.error_utils import exit_error_with_json
 
 
 def main():
@@ -44,19 +44,20 @@ def main():
         # Format as markdown
         markdown = format_issue_as_markdown(issue_data)
 
-        # Write to file or stdout
-        if args.output:
-            with open(args.output, "w") as f:
-                f.write(markdown)
-            print(f"Issue {args.issue_key} saved to {args.output}", file=sys.stderr)
-        else:
-            print(markdown)
-
     except (requests.RequestException, AttachmentFetchError):
         # Request exceptions can contain URLs, query parameters, or server response bodies.
-        # Keep the direct CLI useful without exposing those details; resolve_strategy.py
-        # invokes the formatter directly and retains the typed exception for its stable mapping.
-        exit_error("Error: Jira issue fetch failed")
+        exit_error_with_json({"status": "failed", "error": "jira_fetch_failed"})
+
+    # Write to file or stdout
+    if args.output:
+        try:
+            with open(args.output, "w") as f:
+                f.write(markdown)
+        except OSError:
+            exit_error_with_json({"status": "failed", "error": "output_write_failed"})
+        print(f"Issue {args.issue_key} saved to {args.output}", file=sys.stderr)
+    else:
+        print(markdown)
 
 
 if __name__ == "__main__":

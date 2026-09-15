@@ -245,9 +245,9 @@ def _url_origin(url: str) -> tuple[str, str, int | None]:
 def download_attachment(content_url: str) -> str:
     """Download same-origin Jira attachment content using configured credentials.
 
-    The attachment URL must be absolute and have the same scheme, host, and effective
-    port as ``JIRA_URL``. This validation happens before credentials are loaded or
-    attached to the request. ``JIRA_URL``/``JIRA_BASE_URL`` and
+    The attachment URL must be absolute, use HTTPS, and have the same scheme, host,
+    and effective port as ``JIRA_URL``. This validation happens before credentials
+    are loaded or attached to the request. ``JIRA_URL``/``JIRA_BASE_URL`` and
     ``JIRA_USER``/``JIRA_EMAIL`` and ``JIRA_TOKEN``/``JIRA_API_TOKEN`` aliases remain
     supported through the shared environment helper.
 
@@ -263,7 +263,10 @@ def download_attachment(content_url: str) -> str:
     """
     try:
         jira_url = require_env("JIRA_URL", exit_on_missing=False)
-        if _url_origin(content_url) != _url_origin(jira_url):
+        content_origin = _url_origin(content_url)
+        if content_origin[0] != "https":
+            raise ValueError("attachment URL must use HTTPS")
+        if content_origin != _url_origin(jira_url):
             raise ValueError("attachment URL origin does not match configured Jira URL")
 
         response = requests.get(

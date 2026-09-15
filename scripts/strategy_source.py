@@ -98,6 +98,8 @@ def format_issue_as_markdown(
     issue_key = issue_data.get("key", "UNKNOWN")
     summary = fields.get("summary", "No summary")
     description = fields.get("description", "No description provided")
+    if description is None:
+        description = "No description provided"
     issue_type = fields.get("issuetype", {}).get("name", "Unknown")
     status = fields.get("status", {}).get("name", "Unknown")
     labels = fields.get("labels", [])

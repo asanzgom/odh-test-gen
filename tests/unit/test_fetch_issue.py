@@ -4,6 +4,7 @@ Unit tests for scripts/fetch_issue.py
 Tests Jira issue markdown formatting logic.
 """
 
+import json
 import sys
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ import pytest
 import requests
 
 from scripts.fetch_issue import main
+from scripts.jira_utils import AttachmentFetchError
 from scripts.strategy_source import (
     OVERFLOW_MARKER,
     format_issue_as_markdown,
@@ -146,6 +148,12 @@ class TestFormatIssueAsMarkdown:
         assert "No description provided" in result
         assert "- **Type**: Unknown" in result
         assert "- **Status**: Unknown" in result
+
+    def test_explicit_null_description_uses_fallback(self):
+        """Jira's explicit null description has the same fallback as a missing description."""
+        result = format_issue_as_markdown(_issue(None))
+
+        assert "No description provided" in result
 
 
 class TestStrategyAttachmentResolution:
@@ -325,28 +333,44 @@ class TestFetchIssueCLI:
         mock_get_issue.return_value = _issue(
             OVERFLOW_DESCRIPTION, [_attachment(f"{ISSUE_KEY}-strategy.md", content="https://issues.example.com/42")]
         )
-        mock_download.side_effect = requests.HTTPError(SENSITIVE_HTTP_ERROR)
+        mock_download.side_effect = AttachmentFetchError(SENSITIVE_HTTP_ERROR)
 
         with patch.object(sys, "argv", ["fetch_issue.py", ISSUE_KEY]), pytest.raises(SystemExit) as exc_info:
             main()
 
         captured = capsys.readouterr()
         assert exc_info.value.code == 1
-        assert captured.out == ""
-        assert captured.err.startswith("Error:")
-        assert "issues.example.com" not in captured.err
-        assert "token=abc123" not in captured.err
+        assert json.loads(captured.out) == {"status": "failed", "error": "jira_fetch_failed"}
+        assert "issues.example.com" not in captured.out + captured.err
+        assert "token=abc123" not in captured.out + captured.err
+
+    @patch("scripts.fetch_issue.get_issue", side_effect=requests.HTTPError(SENSITIVE_HTTP_ERROR))
+    def test_jira_request_failure_returns_sanitized_structured_error(self, mock_get_issue, capsys):
+        with patch.object(sys, "argv", ["fetch_issue.py", ISSUE_KEY]), pytest.raises(SystemExit) as exc_info:
+            main()
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert json.loads(captured.out) == {"status": "failed", "error": "jira_fetch_failed"}
+        assert "issues.example.com" not in captured.out + captured.err
+        assert "token=abc123" not in captured.out + captured.err
+        mock_get_issue.assert_called_once_with(ISSUE_KEY, fields=None)
 
     @patch("scripts.fetch_issue.get_issue")
-    def test_output_write_failure_is_not_reported_as_jira_fetch_failure(self, mock_get_issue):
+    def test_output_write_failure_returns_sanitized_structured_error(self, mock_get_issue, capsys):
         mock_get_issue.return_value = _issue("Description")
 
         with (
             patch.object(sys, "argv", ["fetch_issue.py", ISSUE_KEY, "--output", "strategy.md"]),
             patch("builtins.open", side_effect=OSError("disk full")),
-            pytest.raises(OSError, match="disk full"),
+            pytest.raises(SystemExit) as exc_info,
         ):
             main()
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert json.loads(captured.out) == {"status": "failed", "error": "output_write_failed"}
+        assert "disk full" not in captured.out + captured.err
 
     @patch("scripts.fetch_issue.format_issue_as_markdown", side_effect=RuntimeError("formatter bug"))
     @patch("scripts.fetch_issue.get_issue")

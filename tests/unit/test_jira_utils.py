@@ -400,28 +400,20 @@ class TestDownloadAttachment:
 
         mock_get.assert_not_called()
 
+    @patch("scripts.jira_utils._jira_auth")
     @patch("scripts.jira_utils.requests.get")
-    def test_allows_same_origin_http_when_jira_is_configured_for_http(self, mock_get):
-        response = Mock()
-        response.text = "## Strategy\n"
-        response.raise_for_status.return_value = None
-        mock_get.return_value = response
-
+    def test_rejects_same_origin_http_before_loading_credentials(self, mock_get, mock_auth):
         env_vars = {
             "JIRA_URL": "http://jira.example.com:8080/jira",
             "JIRA_USER": "test_user",
             "JIRA_TOKEN": "secret-token",
         }
 
-        with patch.dict(os.environ, env_vars):
-            result = download_attachment("http://jira.example.com:8080/secure/attachment/42/strategy.md")
+        with patch.dict(os.environ, env_vars), pytest.raises(AttachmentFetchError):
+            download_attachment("http://jira.example.com:8080/secure/attachment/42/strategy.md")
 
-        assert result == "## Strategy\n"
-        mock_get.assert_called_once_with(
-            "http://jira.example.com:8080/secure/attachment/42/strategy.md",
-            auth=("test_user", "secret-token"),
-            timeout=60,
-        )
+        mock_auth.assert_not_called()
+        mock_get.assert_not_called()
 
 
 class TestAddLabels:
